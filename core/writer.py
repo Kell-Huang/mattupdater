@@ -132,7 +132,8 @@ class Writer(QObject):
         )
         
         # Add prefix to update columns to avoid name collision with source
-        update_cols = [c for c in updates_wide.columns if c != sku_col]
+        # Use collect_schema().names() to avoid PerformanceWarning
+        update_cols = [c for c in updates_wide.collect_schema().names() if c != sku_col]
         rename_map = {c: f"__upd_{c}" for c in update_cols}
         updates_wide = updates_wide.rename(rename_map)
         
@@ -141,9 +142,12 @@ class Writer(QObject):
         
         # Coalesce: use updated value if not null, otherwise keep original
         coalesce_exprs = []
+        # Resolve schema once for efficient column name checks
+        source_schema = source_lf.collect_schema()
+        source_col_names = source_schema.names()
         for col in update_cols:
             upd_col = f"__upd_{col}"
-            if upd_col in source_lf.columns:
+            if upd_col in source_col_names:
                 coalesce_exprs.append(
                     pl.when(pl.col(upd_col).is_not_null())
                     .then(pl.col(upd_col))
@@ -153,9 +157,11 @@ class Writer(QObject):
         
         if coalesce_exprs:
             source_lf = source_lf.with_columns(coalesce_exprs)
+            # schema changed, we'll re-fetch when needed
         
         # Drop temporary update columns
-        temp_cols = [c for c in source_lf.columns if c.startswith("__upd_")]
+        # Use collect_schema().names() to get current column names without warning
+        temp_cols = [c for c in source_lf.collect_schema().names() if c.startswith("__upd_")]
         if temp_cols:
             source_lf = source_lf.drop(temp_cols)
         
@@ -220,17 +226,25 @@ class Writer(QObject):
         # Append additions
         if self.additions is not None and len(self.additions) > 0:
             add_lf = self.additions.lazy()
-            source_cols = source_lf.columns
+            source_schema = source_lf.collect_schema()
+            source_cols = source_schema.names()
+
+            add_schema = add_lf.collect_schema()
             for col in source_cols:
-                if col not in add_lf.columns:
+                if col not in add_schema.names():
                     add_lf = add_lf.with_columns(pl.lit(None).alias(col))
+                    add_schema = add_lf.collect_schema()
+
             add_lf = add_lf.select(source_cols)
+            add_schema = add_lf.collect_schema()
+
             for col in source_cols:
-                if col in add_lf.columns:
-                    add_type = add_lf.schema[col]
-                    src_type = source_lf.schema[col]
+                if col in add_schema.names():
+                    add_type = add_schema[col]
+                    src_type = source_schema[col]
                     if add_type != src_type and add_type != pl.Null:
                         add_lf = add_lf.with_columns(pl.col(col).cast(src_type))
+                        add_schema = add_lf.collect_schema()
             source_lf = pl.concat([source_lf, add_lf])
         
         # Write to temporary Parquet using streaming sink (low memory)
@@ -241,7 +255,7 @@ class Writer(QObject):
         # Now scan the Parquet file and get total row count (fast)
         lazy_df = pl.scan_parquet(parquet_temp)
         total_rows = lazy_df.select(pl.count()).collect().item()
-        headers = lazy_df.columns
+        headers = lazy_df.collect_schema().names()
         
         self.progress_updated.emit(f"Writing {total_rows:,} rows to XLSX...")
         
@@ -339,17 +353,25 @@ class Writer(QObject):
         # Append additions
         if self.additions is not None and len(self.additions) > 0:
             add_lf = self.additions.lazy()
-            source_cols = source_lf.columns
+            source_schema = source_lf.collect_schema()
+            source_cols = source_schema.names()
+
+            add_schema = add_lf.collect_schema()
             for col in source_cols:
-                if col not in add_lf.columns:
+                if col not in add_schema.names():
                     add_lf = add_lf.with_columns(pl.lit(None).alias(col))
+                    add_schema = add_lf.collect_schema()
+
             add_lf = add_lf.select(source_cols)
+            add_schema = add_lf.collect_schema()
+
             for col in source_cols:
-                if col in add_lf.columns:
-                    add_type = add_lf.schema[col]
-                    src_type = source_lf.schema[col]
+                if col in add_schema.names():
+                    add_type = add_schema[col]
+                    src_type = source_schema[col]
                     if add_type != src_type and add_type != pl.Null:
                         add_lf = add_lf.with_columns(pl.col(col).cast(src_type))
+                        add_schema = add_lf.collect_schema()
             source_lf = pl.concat([source_lf, add_lf])
         
         # Collect all data at once (single lazy evaluation)
