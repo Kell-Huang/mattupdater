@@ -44,7 +44,7 @@ class ColumnMatcher:
     SINGLE_CHAR_WEIGHT = 0.8
     
     # Penalty multiplier when units differ
-    UNIT_PENALTY = 0.7
+    UNIT_PENALTY = 0.3
     
     # Minimum score threshold for indirect match
     MIN_INDIRECT_SCORE = 0.3
