@@ -17,10 +17,12 @@ new column addition.
 
 ## Requirements
 
-- Python 3.8+
-- PySide6 >= 6.5.0
-- Polars >= 0.19.0 (with xlsx support)
-- openpyxl >= 3.1.0
+PySide6>=6.5.0
+polars>=0.19.0
+fastexcel>=0.10.0
+openpyxl>=3.1.0
+xlsxwriter>=3.0.0
+chardet>=5.0.0
 
 ## Installation
 
